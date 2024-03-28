@@ -11,7 +11,7 @@ import fire
 import glob
 
 from data import get_signal_dataset
-from redes import cnn_1d_signal_classifier
+from redes import cnn_1d_signal_classifier, cnn_1d_manu
 
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -27,7 +27,7 @@ def main():
         
     # Parámetros para los generadores
     params = {
-        'name': 'prueba',
+        'name': 'manu_arch',
         'dim': (224, 224, 3),
         'batch_size': 32,
         'name_DB': 'DataSet Coloreado/colored_images',
@@ -36,11 +36,16 @@ def main():
         'shuffle': True
     }
 
-    csv_list = glob.glob('sleep-cassette-csv/*.csv')
+    csv_list = glob.glob('zhang-wamsley-2019/data/CSV/*.csv')
 
-    train_dataset = get_signal_dataset(paths_csv=csv_list[:70])
+    train_dataset = get_signal_dataset(
+        paths_csv=csv_list[:30],
+        shuffle=True
+    )
 
-    val_dataset = get_signal_dataset(paths_csv=csv_list[:10])
+    val_dataset = get_signal_dataset(
+        paths_csv=csv_list[150:180]
+    )
     
     # test_dataset, test_labels = get_dataset(path_csv="csv/test_filtered_images.csv",
     #                             shuffle=False,
@@ -49,12 +54,15 @@ def main():
     #                             return_data=True)
 
 
-    model = cnn_1d_signal_classifier()
+    # model = cnn_1d_signal_classifier()
+    model = cnn_1d_manu()
+    # model = modelo_secuencial
+    
     model.summary()
 
     # sparse_categorical_crossentropy
     model.compile(
-        loss = tf.keras.losses.categorical_crossentropy,
+        loss = tf.keras.losses.BinaryCrossentropy(),
         optimizer = tf.keras.optimizers.Adam(0.0001),
         metrics = ['acc']) 
                     #tfam.F1Score(num_classes=5, name='f1_weig', threshold=0.5)])
@@ -68,7 +76,7 @@ def main():
             verbose=1,
             restore_best_weights=False),
         tf.keras.callbacks.ModelCheckpoint(
-            filepath = 'models/CNN_source',
+            filepath = 'models/CNN_Manu_source/model.keras',
             monitor = monitoring_metric,
             mode = 'max',
             save_best_only = True,
@@ -83,7 +91,7 @@ def main():
             validation_data=val_dataset,
             #class_weight = class_weight,
             epochs = 50,
-            steps_per_epoch=400,
+            steps_per_epoch=4000,
             callbacks = callbacks)
 
     # Guardamos el modelo
