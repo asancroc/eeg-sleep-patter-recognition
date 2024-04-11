@@ -1,134 +1,116 @@
-import cv2
-import pandas as pd
-import numpy as np 
-import os
-import tensorflow as tf
-import matplotlib.pyplot as plt
-import tensorflow.keras as keras
-from sklearn.metrics import classification_report, confusion_matrix
-
 import fire
 import glob
+import tensorflow as tf
+import keras
+import tensorflow_addons as tfa
 
-from data import get_signal_dataset
-from redes import cnn_1d_signal_classifier, cnn_1d_manu
+from data import get_tf_dataset
+from exp_utils import parse_experiment
 
-
-gpus = tf.config.experimental.list_physical_devices('GPU')
-if gpus:
-    try:
-        for gpu in gpus:
-            tf.config.experimental.set_memory_growth(gpu,True)
-    except RuntimeError as e:
-        print("Error setting memory growth")
-        print(e)
-
-def main():
-        
-    # Parámetros para los generadores
-    params = {
-        'name': 'manu_arch',
-        'dim': (224, 224, 3),
-        'batch_size': 32,
-        'name_DB': 'DataSet Coloreado/colored_images',
-        'level_rd': ["No_DR", "Mild", "Moderate", "Severe", "Proliferate_DR"],
-        'n_classes': 5,
-        'shuffle': True
-    }
-
-    csv_list = glob.glob('zhang-wamsley-2019/data/CSV/*.csv')
-
-    train_dataset = get_signal_dataset(
-        paths_csv=csv_list[:30],
-        shuffle=True
-    )
-
-    val_dataset = get_signal_dataset(
-        paths_csv=csv_list[150:180]
-    )
-    
-    # test_dataset, test_labels = get_dataset(path_csv="csv/test_filtered_images.csv",
-    #                             shuffle=False,
-    #                             batch_size=params['batch_size'],
-    #                             gray_scale=False,
-    #                             return_data=True)
-
-
-    # model = cnn_1d_signal_classifier()
-    model = cnn_1d_manu()
-    # model = modelo_secuencial
-    
-    model.summary()
-
-    # sparse_categorical_crossentropy
-    model.compile(
-        loss = tf.keras.losses.BinaryCrossentropy(),
-        optimizer = tf.keras.optimizers.Adam(0.0001),
-        metrics = ['acc']) 
-                    #tfam.F1Score(num_classes=5, name='f1_weig', threshold=0.5)])
-
-    monitoring_metric = 'val_acc'
+def get_callbacks(
+    patiente,
+    monitoring_metric,
+    experiment_name,
+):
     callbacks = [
-        tf.keras.callbacks.EarlyStopping(
+        keras.callbacks.EarlyStopping(
             monitor = monitoring_metric, 
             mode = 'max', 
-            patience = 40, 
+            patience = patiente, 
             verbose=1,
             restore_best_weights=False),
-        tf.keras.callbacks.ModelCheckpoint(
-            filepath = 'models/CNN_Manu_source/model.keras',
+        keras.callbacks.ModelCheckpoint(
+            filepath = f'models/{experiment_name}/model.h5',
             monitor = monitoring_metric,
             mode = 'max',
             save_best_only = True,
             verbose = 1),
-        tf.keras.callbacks.TensorBoard(
-            os.path.join('logs/', params['name']))
-        #tf.keras.callbacks.ReduceLROnPlateau(monitor=monitoring_metric, factor=0.5, patience=5)
+        keras.callbacks.TensorBoard(
+            os.path.join('logs/', experiment_name))
         ]
+
+    return callbacks
+
+
+@parse_experiment
+def train(
+    experiment_name: str,
+    csv_pattern: str,
+    l_users_train: list,
+    l_users_val: list,
+    lr: float = 0.0001,
+    window_size: int = 20,
+    num_features: int = 63,
+    batch_size: int = 32,
+    epochs: int = 100,
+    steps_per_epoch: int = 4_000,
+    patiente: int = 20,
+    normalization: str = None,
+    window_aug: bool = False,
+    overlap: int = 5,
+    pca: bool = False,
+    **experiment,
+):
+    # Generamos la lista de csv para el entrenamiento
+    csv_list = glob.glob(csv_pattern)
+
+    
+    # Creamos los splits para train y val
+    train_dataset = get_tf_dataset(
+        paths_csv=csv_list,
+        window_size=window_size,
+        batch_size=batch_size,
+        shuffle=True,
+        l_users = l_users_train,
+        normalization=normalization,
+        window_aug=window_aug,
+        overlap=overlap,
+        num_features=num_features,
+        pca=pca,
+    )
+
+    val_dataset = get_tf_dataset(
+        paths_csv=csv_list,
+        window_size=window_size,
+        batch_size=batch_size,
+        shuffle=False,
+        l_users = l_users_val,
+        normalization=normalization,
+        window_aug=window_aug,
+        overlap=overlap,
+        num_features=num_features,
+        pca=pca,
+    )
+
+    # Cargamos las arquitecturas y compilamos el modelos
+    model = experiment['arq']
+    model.summary()
+
+    model.compile(
+        loss = tf.keras.losses.BinaryCrossentropy(),
+        optimizer = tf.keras.optimizers.Adam(lr),
+        metrics = ['acc',
+        tfa.metrics.F1Score(num_classes=1, name='f1_weig', threshold=0.5, average='weighted')]
+    ) 
+    
+
+    # Getting callbacks
+    callbacks = get_callbacks(
+        patiente=patiente,
+        monitoring_metric=experiment['monitoring_metric'],
+        experiment_name=experiment_name
+    )
+    
 
     # Entrenamos el modelo
     history = model.fit(train_dataset.repeat(),
             validation_data=val_dataset,
             #class_weight = class_weight,
-            epochs = 50,
-            steps_per_epoch=4000,
-            callbacks = callbacks)
-
-    # Guardamos el modelo
-    model.save("CNN_source.h5")
-
-    # Evaluamos el modelo
-    # predictions = model.predict(test_dataset, batch_size = 64)
-    #predictions = model.predict(test, batch_size = 64).round()
-    
-    #Gráficas
-    # Loss Curves
-    plt.figure(figsize=[8,6])
-    plt.plot(history.history['loss'],'r',linewidth=3.0)
-    plt.plot(history.history['val_loss'],'b',linewidth=3.0)
-    plt.legend(['Training loss', 'Validation Loss'],fontsize=18)
-    plt.xlabel('Epochs ',fontsize=16)
-    plt.ylabel('Loss',fontsize=16)
-    plt.title('Loss Curves',fontsize=16)
-    #plt.savefig('graficas/LossCurves'+cuerpo+numeroEpocas+'DataSetNadia'+'.png')
-    plt.savefig('Loss'+'.png')
-    plt.show()
-
-    # Accuracy Curves
-    plt.figure(figsize=[8,6])
-    plt.plot(history.history['acc'],'r',linewidth=3.0) #Sera accuracy en lugar de acc si has puesto como metrics del model.fit, accuracy
-    plt.plot(history.history['val_acc'],'b',linewidth=3.0)
-    plt.legend(['Training Accuracy', 'Validation Accuracy'],fontsize=18)
-    plt.xlabel('Epochs ',fontsize=16)
-    plt.ylabel('Accuracy',fontsize=16)
-    plt.title('Accuracy Curves',fontsize=16)
-    #plt.savefig('graficas/AccuracyCurves'+cuerpo+numeroEpocas+'DataSetNadia'+'.png')
-    plt.savefig('Accur'+'.png')
-    plt.show()
-
-    # print(confusion_matrix(keras.utils.to_categorical(test_labels, num_classes = params['n_classes']), predictions))    
-    # print(classification_report(keras.utils.to_categorical(test_labels, num_classes = params['n_classes']).argmax(axis = 1), predictions.argmax(axis = 1), target_names = params['level_rd']))
-
+            epochs = epochs,
+            steps_per_epoch=steps_per_epoch,
+            callbacks = callbacks
+    )
 
 if __name__ == "__main__":
-    fire.Fire(main)
+    fire.Fire(train)
+    # fire.Fire(train(experiment = 'f1_mia_lstm_normalize_0_1_PCA_20_bs_32_lr_5_e4_'))

@@ -1,11 +1,30 @@
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-import cv2
-import random
 from PIL import Image
-from tensorflow._api.v2.data import experimental
-from tensorflow.python.data.ops.dataset_ops import AUTOTUNE
+from sklearn.decomposition import PCA
+
+def normalize_df_columns_1_1(df):
+    # Columns to normalize (excluding 'label')
+    columns_to_normalize = df.columns[:-1]  # Assuming 'label' is the last column
+
+    for column in columns_to_normalize:
+        min_value = df[column].min()
+        max_value = df[column].max()
+        df[column] = ((df[column] - min_value) / (max_value - min_value)) * 2 - 1
+    
+    return df
+
+def normalize_df_columns_0_1(df):
+    # Columns to normalize (excluding 'label')
+    columns_to_normalize = df.columns[:-1]  # Assuming 'label' is the last column
+
+    for column in columns_to_normalize:
+        min_value = df[column].min()
+        max_value = df[column].max()
+        df[column] = (df[column] - min_value) / (max_value - min_value)
+    
+    return df
 
 
 def gather_signals_by_class(df_raw, num_signals=20):
@@ -22,6 +41,267 @@ def gather_signals_by_class(df_raw, num_signals=20):
                 grouped_data.append(subset)
                 
     return pd.concat(grouped_data)
+
+def sliding_window_augmentation(df, window_size=400, overlap=300):
+    """
+    Apply sliding window technique to a DataFrame with sensor signal columns.
+
+    Args:
+    - df (pd.DataFrame): DataFrame with the sensor signal columns (0-62) and a label column (63).
+    - window_size (int): Number of measurements in each window.
+    - overlap (int): Number of measurements that overlap between consecutive windows.
+
+    Returns:
+    - pd.DataFrame: A new DataFrame with the augmented data.
+    """
+    # Create an empty list to store the new rows after applying the sliding window
+    augmented_df = pd.DataFrame()
+    
+    # Determine the step size from the overlap
+    step_size = window_size - overlap
+    
+    # Loop over the DataFrame with the given step size
+    for start in range(0, len(df) - window_size + 1, step_size):
+        end = start + window_size
+        # Extract the window of measurements
+        window = df.iloc[start:end, :-1].values  # Select columns 0 to 62
+        # Assuming the label is the last column and consistent within the window
+        label = df.iloc[start, -1]  # Select the label
+        # Append the window of measurements and the label to the list
+        df_temp = pd.DataFrame(window, columns = [f'sensor_{i}' for i in range(63)])
+        df_temp['label'] = label
+
+        augmented_df = pd.concat([augmented_df, df_temp], ignore_index=True)  
+    
+    return augmented_df
+
+def get_tf_dataset(
+        paths_csv: list,
+        window_size: int,
+        l_users: list,
+        shuffle: bool = False,
+        batch_size: int = 10,
+        normalization: str = None,
+        window_aug: bool = False,
+        overlap: int = 5,
+        return_data: bool = False,
+        cache: bool = False,
+        num_features: int = 63,
+        pca: bool = False,
+):
+    # filtering csv files list by user id
+    paths_csv_filetered = [path for path in paths_csv if any(user_id in path for user_id in l_users)]
+
+    # Load CSV data
+    df_raw = pd.DataFrame()
+    
+    # Load and concatenate CSV files
+    for path in paths_csv_filetered[:]:
+        temp_df = pd.read_csv(path, delimiter=';', header=0)
+        df_raw = pd.concat([df_raw, temp_df], ignore_index=True)    
+    
+    if normalization is not None:
+        # Implement normalizing logic here
+        if normalization == '[0,1]':
+            print('Normalizando: [0,1]')
+            df_raw = normalize_df_columns_0_1(df_raw)
+
+        elif normalization == '[-1,1]':
+            print('Normalizando: [-1,1]')
+            df_raw = normalize_df_columns_1_1(df_raw)
+    
+    if pca:
+        print(' >> Running PCA')
+        X = df_raw.iloc[:, :63]  # Features (sensor data)
+        y = df_raw.iloc[:, 63]
+    
+        pca = PCA(n_components=num_features)
+        X_reduced = pca.fit_transform(X)
+
+        df_raw = pd.DataFrame(X_reduced, columns = [f'sensor_{i}' for i in range(num_features)])
+        df_raw['label'] = y.values  # Adding the labels back
+
+
+    if window_aug:
+        print(' >> Running Window Slice')
+        df_raw = sliding_window_augmentation(
+            df_raw,
+            window_size=window_size,
+            overlap=overlap
+        )
+
+    # Organize data by class, collecting sets of num_signals signals per class
+    df_raw = gather_signals_by_class(df_raw, num_signals=window_size)
+
+    # Extracting sensor data and labels
+    sensor_data = df_raw[[f'sensor_{i}' for i in range(num_features)]].values
+    labels = df_raw['label'].values[::window_size]  # Assuming the same label for each group of 20 signals"""
+
+    print('Number of instances per label: ',
+          pd.Series(labels).value_counts(), sep='\n')
+    print('Percentaje of instances per label: ',
+          pd.Series(labels).value_counts().div(pd.Series(labels).shape[0]),
+          sep='\n')
+    
+    # Reshape data to have 'num_signals' signals per item
+    sensor_data_reshaped = sensor_data.reshape(-1, window_size, sensor_data.shape[1])
+
+    # Create TensorFlow Dataset
+    dataset = tf.data.Dataset.from_tensor_slices((sensor_data_reshaped, labels))
+
+    if shuffle:
+        print(' > Shuffle')
+        dataset = dataset.shuffle(len(labels))
+
+    if batch_size is not None:
+        dataset = dataset.batch(batch_size)
+
+    if cache:
+        dataset = dataset.cache('tf_cache/')
+    
+    dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
+
+
+    if return_data:
+        return dataset, labels
+    else:
+        return dataset
+
+
+
+
+def get_sv_dataset(
+        paths_csv: list,
+        l_users: list,
+        num_signals: int,
+        shuffle: bool = False,
+        normalization: str = None,
+        window_aug: bool = False,
+        window_size: int = 20,
+        overlap: int = 5,
+):
+    # filtering csv files list by user id
+    paths_csv_filetered = [path for path in paths_csv if any(user_id in path for user_id in l_users)]
+
+    # Load CSV data
+    df_raw = pd.DataFrame()
+    
+    # Load and concatenate CSV files
+    for path in paths_csv_filetered[:]:
+        temp_df = pd.read_csv(path, delimiter=';', header=0)
+        df_raw = pd.concat([df_raw, temp_df], ignore_index=True)    
+    
+    if normalization is not None:
+        # Implement normalizing logic here
+        if normalization == '[0,1]':
+            print('Normalizando: [0,1]')
+            df_raw = normalize_df_columns_0_1(df_raw)
+
+        elif normalization == '[-1,1]':
+            print('Normalizando: [-1,1]')
+            df_raw = normalize_df_columns_1_1(df_raw)
+    
+    
+    if window_aug:
+        df_raw = sliding_window_augmentation(
+            df_raw,
+            window_size=window_size,
+            overlap=overlap
+        )
+
+    # Organize data by class, collecting sets of num_signals signals per class
+    df_raw = gather_signals_by_class(df_raw, num_signals=num_signals)
+
+    # Extracting sensor data and labels
+    sensor_data = df_raw[[f'sensor_{i}' for i in range(63) if i != 59]].values
+    labels = df_raw['label'].values[::num_signals]  # Assuming the same label for each group of 20 signals"""
+
+    # Reshape data to have 'num_signals' signals per item
+    sensor_data_reshaped = sensor_data.reshape(-1, num_signals, sensor_data.shape[1])
+    sensor_data_reshaped = sensor_data_reshaped.reshape(sensor_data_reshaped.shape[0], -1)
+
+    print('Number of instances per label: ',
+          pd.Series(labels).value_counts(), sep='\n')
+    print('Percentaje of instances per label: ',
+          pd.Series(labels).value_counts().div(pd.Series(labels).shape[0]),
+          sep='\n')
+
+
+    return sensor_data_reshaped, labels
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -43,58 +323,6 @@ def load_and_process(*inputs):
     outputs = list(inputs)
     # Use tf.py_function to wrap the load_csv function
     return tf.py_function(func=load_csv, inp=[outputs[0], outputs[1]], Tout=(tf.float32, tf.int32))
-
-
-def get_signal_dataset(paths_csv: list = None, shuffle: bool = False, batch_size: int = 10, 
-                over_samp: bool = False, num_signals: int = 20):
-    # Load CSV data
-    df_raw = pd.DataFrame()
-    
-    # Load and concatenate CSV files
-    for path in paths_csv:
-        temp_df = pd.read_csv(path, delimiter=';', header=0)
-        df_raw = pd.concat([df_raw, temp_df], ignore_index=True)    
-    
-    print('Number of instances per label: ',
-          pd.Series(df_raw['label']).value_counts(), sep='\n')
-    print('Percentaje of instances per label: ',
-          pd.Series(df_raw['label']).value_counts().div(pd.Series(df_raw['label']).shape[0]),
-          sep='\n')
-    
-    if over_samp:
-        # Implement over_sampling logic here
-        pass
-    
-    # df_raw['measure'] = df_raw['measure'].apply(lambda x: np.fromstring(x.strip('()'), sep=','))
-
-    # Organize data by class, collecting sets of num_signals signals per class
-    df_raw = gather_signals_by_class(df_raw, num_signals=num_signals)
-
-    # Extracting sensor data and labels
-    sensor_data = df_raw[[f'sensor_{i}' for i in range(63)]].values
-    labels = df_raw['label'].values[::num_signals]  # Assuming the same label for each group of 20 signals
-
-    # Reshape data to have 'num_signals' signals per item
-    sensor_data_reshaped = sensor_data.reshape(-1, num_signals, sensor_data.shape[1])
-    # labels_one_hot = tf.keras.utils.to_categorical(labels)
-
-    # Create TensorFlow Dataset
-    dataset = tf.data.Dataset.from_tensor_slices((sensor_data_reshaped, labels))
-
-    if shuffle:
-        print(' > Shuffle')
-        dataset = dataset.shuffle(len(labels))
-
-    if batch_size is not None:
-        dataset = dataset.batch(batch_size)
-
-    dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
-
-    return dataset
-
-
-
-
 
 def get_signal_dataset_except(paths_csv: list = None, shuffle: bool = False, batch_size: int = 32, 
                 over_samp: bool = False, return_data: bool = False, num_signals: int = 20):
