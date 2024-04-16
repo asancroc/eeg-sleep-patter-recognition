@@ -42,7 +42,7 @@ def gather_signals_by_class(df_raw, num_signals=20):
                 
     return pd.concat(grouped_data)
 
-def sliding_window_augmentation(df, window_size=400, overlap=300):
+def sliding_window_augmentation(df, window_size=400, overlap=300, num_features=63):
     """
     Apply sliding window technique to a DataFrame with sensor signal columns.
 
@@ -68,7 +68,7 @@ def sliding_window_augmentation(df, window_size=400, overlap=300):
         # Assuming the label is the last column and consistent within the window
         label = df.iloc[start, -1]  # Select the label
         # Append the window of measurements and the label to the list
-        df_temp = pd.DataFrame(window, columns = [f'sensor_{i}' for i in range(63)])
+        df_temp = pd.DataFrame(window, columns = [f'sensor_{i}' for i in range(num_features)])
         df_temp['label'] = label
 
         augmented_df = pd.concat([augmented_df, df_temp], ignore_index=True)  
@@ -84,7 +84,6 @@ def get_tf_dataset(
         normalization: str = None,
         window_aug: bool = False,
         overlap: int = 5,
-        return_data: bool = False,
         cache: bool = False,
         num_features: int = 63,
         pca: bool = False,
@@ -112,7 +111,7 @@ def get_tf_dataset(
     
     if pca:
         print(' >> Running PCA')
-        X = df_raw.iloc[:, :63]  # Features (sensor data)
+        X = df_raw.iloc[:, :63]
         y = df_raw.iloc[:, 63]
     
         pca = PCA(n_components=num_features)
@@ -127,7 +126,8 @@ def get_tf_dataset(
         df_raw = sliding_window_augmentation(
             df_raw,
             window_size=window_size,
-            overlap=overlap
+            overlap=overlap,
+            num_features=num_features
         )
 
     # Organize data by class, collecting sets of num_signals signals per class
@@ -161,11 +161,7 @@ def get_tf_dataset(
     
     dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
 
-
-    if return_data:
-        return dataset, labels
-    else:
-        return dataset
+    return dataset, labels
 
 
 

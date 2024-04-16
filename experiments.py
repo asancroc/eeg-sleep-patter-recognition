@@ -1,6 +1,19 @@
 from redes import *
-from exp_utils import d_users_split
 
+d_users_split = {
+    'train': [
+        '249', '266', '010', '388', '088',
+        '185', '422', '107', '026', '455',
+        '348', '337', '309', '245', '183',
+        '411', '374', '384',
+    ],
+    'val': [
+        '042', '347', '512', '228', '452',
+    ],
+    'test': [
+        '083', '126',  '030', '181', '535',
+    ],
+}
 
 prueba_manu_no_normalize_10 = {
     'experiment_name': 'prueba_manu_no_normalize_10',
@@ -226,6 +239,28 @@ f1_mia_lstm_normalize_0_1_PCA_20_bs_32_lr_5_e4_ = {
     'monitoring_metric': 'val_f1_weig',
     'normalization': '[0,1]',
     'window_aug': True,
+    'overlap': 10,
+    'pca': True,
+}
+
+prueba_final = {
+    'experiment_name': 'prueba_final',
+    'window_size': 40,
+    'num_features': 20,
+    'arq': cnn_1d_manu(num_signals=40, num_features=20),
+    'csv_pattern': 'zhang-wamsley-2019/data/CSV/*.csv',
+    'l_users_train': d_users_split['val'],
+    'l_users_val': d_users_split['val'],
+    'l_users_test': d_users_split['test'],
+    'batch_size': 32,
+    'epochs': 100,
+    'steps_per_epoch': 1000,
+    'lr': 0.0001,
+    'patiente': 30,
+    'monitoring_metric': 'val_f1_weig',
+    'normalization': '[0,1]',
+    'class_weights': True,
+    'window_aug': False,
     'overlap': 10,
     'pca': True,
 }

@@ -12,22 +12,6 @@ from sklearn.metrics import (
 
 tf.random.set_seed(33)
 
-d_users_split = {
-    'train': [
-        '249', '266', '010', '388', '088',
-        '185', '422', '107', '026', '455',
-        '348', '337', '309', '245', '183',
-        '411', '374', '384',
-    ],
-    'val': [
-        '042', '347', '512', '228', '452',
-    ],
-    'test': [
-        '083', '126',  '030', '181', '535',
-    ],
-}
-
-
 
 def parse_experiment(func):
     def decorator(*args, **kwards):
@@ -84,7 +68,8 @@ def normalize_df_columns_0_1(df):
 
 
 def display_roc_and_f1(labels, y_pred_scores):
-    f1 = f1_score(labels, y_pred_scores, average='weighted')
+    y_pred_scores_bin = np.where(y_pred_scores >= 0.5, 1, 0)
+    f1 = f1_score(labels, y_pred_scores_bin, average='weighted')
     print(f'F1 Score: {f1}')
 
     fpr, tpr, _ = roc_curve(labels, y_pred_scores)
@@ -118,3 +103,16 @@ def display_conf_matrix(y_true, y_pred):
     sns.heatmap(conf_matrix/np.sum(conf_matrix), annot=True, 
         fmt='.2%', cmap='Blues')
     plt.show()
+
+
+def calculate_class_weights(labels: np.ndarray):
+    # Calculate the occurrences of each label
+    classes, counts = np.unique(labels, return_counts=True)
+    
+    # Calculate the total number of samples
+    total_samples = len(labels)
+    
+    # Calculate class weight for each class
+    class_weights = {cls: total_samples / count for cls, count in zip(classes, counts)}
+
+    return class_weights

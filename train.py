@@ -1,3 +1,4 @@
+import os
 import fire
 import glob
 import tensorflow as tf
@@ -5,7 +6,7 @@ import keras
 import tensorflow_addons as tfa
 
 from data import get_tf_dataset
-from exp_utils import parse_experiment
+from exp_utils import parse_experiment, calculate_class_weights
 
 def get_callbacks(
     patiente,
@@ -45,6 +46,7 @@ def train(
     epochs: int = 100,
     steps_per_epoch: int = 4_000,
     patiente: int = 20,
+    class_weights: bool = True,
     normalization: str = None,
     window_aug: bool = False,
     overlap: int = 5,
@@ -56,7 +58,7 @@ def train(
 
     
     # Creamos los splits para train y val
-    train_dataset = get_tf_dataset(
+    train_dataset, labels_train = get_tf_dataset(
         paths_csv=csv_list,
         window_size=window_size,
         batch_size=batch_size,
@@ -69,7 +71,10 @@ def train(
         pca=pca,
     )
 
-    val_dataset = get_tf_dataset(
+    if class_weights:
+        cw = calculate_class_weights(labels_train)
+
+    val_dataset, _ = get_tf_dataset(
         paths_csv=csv_list,
         window_size=window_size,
         batch_size=batch_size,
@@ -103,14 +108,14 @@ def train(
     
 
     # Entrenamos el modelo
-    history = model.fit(train_dataset.repeat(),
+    _ = model.fit(train_dataset.repeat(),
             validation_data=val_dataset,
-            #class_weight = class_weight,
+            class_weight = cw,
             epochs = epochs,
             steps_per_epoch=steps_per_epoch,
             callbacks = callbacks
     )
 
 if __name__ == "__main__":
-    fire.Fire(train)
-    # fire.Fire(train(experiment = 'f1_mia_lstm_normalize_0_1_PCA_20_bs_32_lr_5_e4_'))
+    #fire.Fire(train)
+    fire.Fire(train(experiment = 'prueba_final'))
