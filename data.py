@@ -399,7 +399,7 @@ def tf_augmenter2():
 def load_image(*inputs):
     outputs = list(inputs)
     image = tf.numpy_function(load_image_np, [inputs[0]], tf.float32)
-    image.set_shape([None, None, 3])
+    image.set_shape([None, None, 63])
     outputs[0] = image
     
     return outputs
