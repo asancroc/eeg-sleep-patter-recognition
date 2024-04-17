@@ -395,11 +395,24 @@ def tf_augmenter2():
         return output
     return f
 
+
+@tf.function
+def load_npy(*inputs):
+    outputs = list(inputs)
+    data = tf.numpy_function(load_npy_np, [inputs[0]], tf.float32)
+    data.set_shape([None, None, 63])
+    outputs[0] = data
+    
+    return outputs
+
+def load_npy_np(path):
+    return np.load(path)
+
 @tf.function
 def load_image(*inputs):
     outputs = list(inputs)
     image = tf.numpy_function(load_image_np, [inputs[0]], tf.float32)
-    image.set_shape([None, None, 63])
+    image.set_shape([None, None, 3])
     outputs[0] = image
     
     return outputs
@@ -466,7 +479,7 @@ def get_image_dataset(
         dataset = dataset.shuffle(len(names))
 
     # Loading Images
-    dataset = dataset.map(load_image, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    dataset = dataset.map(load_npy, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
     # Resize a lo que queremos
     #dataset = dataset.map(resize(resize_to=(224,224)), num_parallel_calls=tf.data.experimental.AUTOTUNE)
