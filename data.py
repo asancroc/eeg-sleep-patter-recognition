@@ -75,6 +75,16 @@ def sliding_window_augmentation(df, window_size=400, overlap=300, num_features=6
     
     return augmented_df
 
+@tf.function
+def add_noise_to_eeg_signal(*inputs, noise_level=0.05, apply_prob=0.2):
+    outputs = list(inputs)
+    if tf.random.uniform([1], minval=0, maxval=1) < apply_prob:
+        noise = tf.random.uniform(shape=tf.shape(outputs[0]), minval=-noise_level, maxval=noise_level, dtype=tf.float64)
+        outputs[0] += noise * outputs[0]  # Add noise to the signal
+    
+    return outputs
+
+
 def get_tf_dataset(
         paths_csv: list,
         window_size: int,
@@ -85,6 +95,7 @@ def get_tf_dataset(
         window_aug: bool = False,
         overlap: int = 5,
         cache: bool = False,
+        aug_data: bool = False,
         num_features: int = 63,
         pca: bool = False,
 ):
@@ -152,6 +163,9 @@ def get_tf_dataset(
     if shuffle:
         print(' > Shuffle')
         dataset = dataset.shuffle(len(labels))
+        
+    if aug_data:
+        dataset = dataset.map(add_noise_to_eeg_signal, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
     if batch_size is not None:
         dataset = dataset.batch(batch_size)
@@ -224,77 +238,6 @@ def get_sv_dataset(
 
 
     return sensor_data_reshaped, labels
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -535,7 +478,7 @@ def get_image_dataset(
 
     ##############################################################
     # Aumenters
-    if augmenter:
+    """f augmenter:
         print(f' > Augmentamos datos numero {num_aug}')
         if num_aug == 1:
             dataset = dataset.map(tf_augmenter(), num_parallel_calls=tf.data.experimental.AUTOTUNE)
@@ -546,7 +489,7 @@ def get_image_dataset(
 
     if gray_scale:
         print(' > Escala de grises')
-        dataset = dataset.map(lambda *args: (tf.image.rgb_to_grayscale(args[0]), *args[1:]))
+        dataset = dataset.map(lambda *args: (tf.image.rgb_to_grayscale(args[0]), *args[1:]))"""
 
     # Prepare batch_size
     if batch_size is not None:

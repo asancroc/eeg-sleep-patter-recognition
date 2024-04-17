@@ -3,6 +3,10 @@ import numpy as np
 import seaborn as sns
 import tensorflow as tf
 import experiments
+from redes import (
+    cnn_1d_manu, cnn_1d_signal_classifier,
+    cnn_2d_manu, LSTMGRUnn
+)
 
 import matplotlib.pyplot as plt
 from sklearn.metrics import (
@@ -26,6 +30,19 @@ def parse_experiment(func):
 
     return decorator
 
+def parse_network(
+    arq: str,
+    num_signals: int,
+    num_features: int
+):
+    if arq == 'cnn_2d_manu':
+        return cnn_2d_manu((45, 45, 63))
+    elif arq == 'cnn_1d_manu':
+        return cnn_1d_manu(num_signals, num_features)
+    elif arq == 'LSTMGRUnn':
+        return LSTMGRUnn(num_signals, num_features)
+    elif arq == 'cnn_1d':
+        return cnn_1d_signal_classifier(num_signals, num_features)
 
 
 def save_ml_model(ml_model, model_path):

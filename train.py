@@ -6,7 +6,11 @@ import keras
 import tensorflow_addons as tfa
 
 from data import get_tf_dataset
-from exp_utils import parse_experiment, calculate_class_weights
+from exp_utils import (
+    parse_experiment,
+    calculate_class_weights,
+    parse_network,
+)
 
 def get_callbacks(
     patiente,
@@ -49,6 +53,7 @@ def train(
     class_weights: bool = True,
     normalization: str = None,
     window_aug: bool = False,
+    aug_data: bool = False,
     overlap: int = 5,
     pca: bool = False,
     **experiment,
@@ -67,6 +72,7 @@ def train(
         normalization=normalization,
         window_aug=window_aug,
         overlap=overlap,
+        aug_data=aug_data,
         num_features=num_features,
         pca=pca,
     )
@@ -87,8 +93,12 @@ def train(
         pca=pca,
     )
 
-    # Cargamos las arquitecturas y compilamos el modelos
-    model = experiment['arq']
+    # Cargamos las arquitecturas y compilamos el modelo
+    model = parse_network(
+        arq=experiment['arq'],
+        num_signals=window_size,
+        num_features=num_features
+    )
     model.summary()
 
     model.compile(
